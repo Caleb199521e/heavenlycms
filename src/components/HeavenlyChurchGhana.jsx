@@ -1616,6 +1616,22 @@ export default function App() {
     setToast({ message, type });
   }, []);
 
+  // Restore session from localStorage on mount
+  useEffect(() => {
+    const savedToken = localStorage.getItem('authToken');
+    const savedUser = localStorage.getItem('currentUser');
+    
+    if (savedToken && savedUser) {
+      try {
+        const user = JSON.parse(savedUser);
+        setUser(user);
+      } catch (err) {
+        console.error('Failed to restore session:', err);
+        localStorage.clear();
+      }
+    }
+  }, []);
+
   // Load data when user logs in
   useEffect(() => {
     if (!user) return;
