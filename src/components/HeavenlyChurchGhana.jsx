@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, createContext, useContext } from "react";
+import { authAPI, membersAPI, visitorsAPI, servicesAPI, attendanceAPI, reportsAPI } from "../services/api";
 
 // ─── Theme & Fonts ────────────────────────────────────────────────────────────
 const GlobalStyles = () => (
@@ -237,9 +238,10 @@ const serviceTypeColors = {
 };
 
 function Avatar({ name, size = 36 }) {
-  const initials = name.split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase();
+  const displayName = name || 'User';
+  const initials = displayName.split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase();
   const colors = ['#2563EB', '#16A34A', '#9333EA', '#D97706', '#DC2626', '#0891B2'];
-  const color = colors[name.charCodeAt(0) % colors.length];
+  const color = colors[displayName.charCodeAt(0) % colors.length];
   return (
     <div style={{ width: size, height: size, borderRadius: '50%', background: color + '20',
       color, display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -302,19 +304,23 @@ function LoginPage({ onLogin }) {
     e.preventDefault();
     setError('');
     setLoading(true);
-    await new Promise(r => setTimeout(r, 800));
-    const creds = {
-      'admin@heavenly.gh': { password: 'admin123', role: 'admin', name: 'Pastor Emmanuel Asante' },
-      'usher@heavenly.gh': { password: 'usher123', role: 'usher', name: 'Kofi Mensah' },
-      'leader@heavenly.gh': { password: 'leader123', role: 'leader', name: 'Ama Darko' },
-    };
-    const user = creds[email];
-    if (user && user.password === password) {
-      onLogin({ email, role: user.role, name: user.name });
-    } else {
-      setError('Invalid email or password. Try admin@heavenly.gh / admin123');
+    try {
+      const response = await authAPI.login(email, password);
+      const { token, user } = response.data;
+      
+      // Store token and user info
+      localStorage.setItem('authToken', token);
+      localStorage.setItem('currentUser', JSON.stringify(user));
+      
+      // Call onLogin with user data
+      onLogin(user);
+    } catch (err) {
+      const errorMsg = err.response?.data?.message || 'Failed to login. Check your connection.';
+      setError(errorMsg);
+      console.error('Login error:', err);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   return (
@@ -598,7 +604,7 @@ function StatCard({ label, value, icon, color, sub, trend }) {
 function AttendanceChart({ services, attendance }) {
   const chartData = services.slice(0, 6).reverse().map(s => ({
     label: new Date(s.date).toLocaleDateString('en-GH', { month: 'short', day: 'numeric' }),
-    count: attendance.filter(a => a.serviceId === s.id).length,
+    count: attendance.filter(a => a.serviceId === s._id).length,
     type: s.type,
   }));
   const max = Math.max(...chartData.map(d => d.count), 1);
@@ -629,8 +635,8 @@ function AttendanceChart({ services, attendance }) {
 // ─── DASHBOARD PAGE ───────────────────────────────────────────────────────────
 function DashboardPage({ members, visitors, attendance, services, user }) {
   const today = new Date().toISOString().split('T')[0];
-  const todayServices = services.filter(s => s.date === today);
-  const todayAttendance = attendance.filter(a => todayServices.some(s => s.id === a.serviceId));
+  const todayServices = services.filter(s => s.date && s.date.substring(0, 10) === today);
+  const todayAttendance = attendance.filter(a => todayServices.some(s => s._id === a.serviceId));
   const todayMembers = todayAttendance.filter(a => a.attendeeType === 'member').length;
   const todayVisitors = todayAttendance.filter(a => a.attendeeType === 'visitor').length;
   const activeMembers = members.filter(m => m.status === 'active').length;
@@ -757,24 +763,37 @@ function MembersPage({ members, setMembers, showToast, user }) {
   const openAdd = () => { setEditing(null); setForm({ fullName: '', phone: '', email: '', department: 'Choir', status: 'active' }); setShowModal(true); };
   const openEdit = (m) => { setEditing(m); setForm({ fullName: m.fullName, phone: m.phone, email: m.email, department: m.department, status: m.status }); setShowModal(true); };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!form.fullName || !form.phone) return;
-    if (editing) {
-      setMembers(prev => prev.map(m => m.id === editing.id ? { ...m, ...form } : m));
-      showToast('Member updated successfully', 'success');
-    } else {
-      const newId = Math.max(...members.map(m => m.id)) + 1;
-      const newMemberId = `HCG-${String(newId).padStart(4, '0')}`;
-      setMembers(prev => [...prev, { id: newId, membershipId: newMemberId, ...form, joinDate: today }]);
-      showToast('Member added successfully', 'success');
+    try {
+      if (editing) {
+        await membersAPI.update(editing._id, form);
+        setMembers(prev => prev.map(m => m._id === editing._id ? { ...m, ...form } : m));
+        showToast('Member updated successfully', 'success');
+      } else {
+        const response = await membersAPI.create(form);
+        setMembers(prev => [...prev, response.data]);
+        showToast('Member added successfully', 'success');
+      }
+      setShowModal(false);
+    } catch (error) {
+      const errorMsg = error.response?.data?.message || 'Failed to save member';
+      showToast(errorMsg, 'error');
+      console.error('Save error:', error);
     }
-    setShowModal(false);
   };
 
-  const handleDelete = () => {
-    setMembers(prev => prev.filter(m => m.id !== deleteTarget.id));
-    showToast('Member deleted', 'success');
-    setDeleteTarget(null);
+  const handleDelete = async () => {
+    try {
+      await membersAPI.delete(deleteTarget._id);
+      setMembers(prev => prev.filter(m => m._id !== deleteTarget._id));
+      showToast('Member deleted', 'success');
+      setDeleteTarget(null);
+    } catch (error) {
+      const errorMsg = error.response?.data?.message || 'Failed to delete member';
+      showToast(errorMsg, 'error');
+      console.error('Delete error:', error);
+    }
   };
 
   const depts = ['Choir', 'Ushers', 'Youth', 'Children', 'Men', 'Women', 'Elders', 'Media', 'Prayer', 'Other'];
@@ -811,7 +830,7 @@ function MembersPage({ members, setMembers, showToast, user }) {
             </thead>
             <tbody>
               {filtered.map(m => (
-                <tr key={m.id} className="row-hover">
+                <tr key={m._id} className="row-hover">
                   <td>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                       <Avatar name={m.fullName} size={34} />
@@ -825,7 +844,7 @@ function MembersPage({ members, setMembers, showToast, user }) {
                   <td>{m.phone}</td>
                   <td><span className={`badge ${deptColors[m.department] || 'badge-slate'}`}>{m.department}</span></td>
                   <td><span className={`badge ${m.status === 'active' ? 'badge-green' : 'badge-slate'}`}>{m.status}</span></td>
-                  <td style={{ fontSize: 13, color: 'var(--slate-500)' }}>{new Date(m.joinDate).toLocaleDateString('en-GH')}</td>
+                  <td style={{ fontSize: 13, color: 'var(--slate-500)' }}>{new Date(m.joinDate || new Date()).toLocaleDateString('en-GH')}</td>
                   {canEdit && (
                     <td>
                       <div style={{ display: 'flex', gap: 6 }}>
@@ -911,17 +930,24 @@ function VisitorsPage({ visitors, setVisitors, members, showToast }) {
   const openAdd = () => { setEditing(null); setForm({ fullName: '', phone: '', email: '', invitedBy: '' }); setShowModal(true); };
   const openEdit = (v) => { setEditing(v); setForm({ fullName: v.fullName, phone: v.phone, email: v.email || '', invitedBy: v.invitedBy || '' }); setShowModal(true); };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!form.fullName || !form.phone) return;
-    if (editing) {
-      setVisitors(prev => prev.map(v => v.id === editing.id ? { ...v, ...form } : v));
-      showToast('Visitor updated', 'success');
-    } else {
-      const newId = Math.max(...visitors.map(v => v.id)) + 1;
-      setVisitors(prev => [...prev, { id: newId, ...form, visitCount: 1, firstVisitDate: today, lastVisitDate: today }]);
-      showToast('Visitor registered successfully', 'success');
+    try {
+      if (editing) {
+        await visitorsAPI.update(editing._id, form);
+        setVisitors(prev => prev.map(v => v._id === editing._id ? { ...v, ...form } : v));
+        showToast('Visitor updated', 'success');
+      } else {
+        const response = await visitorsAPI.create(form);
+        setVisitors(prev => [...prev, response.data]);
+        showToast('Visitor registered successfully', 'success');
+      }
+      setShowModal(false);
+    } catch (error) {
+      const errorMsg = error.response?.data?.message || 'Failed to save visitor';
+      showToast(errorMsg, 'error');
+      console.error('Save error:', error);
     }
-    setShowModal(false);
   };
 
   return (
@@ -940,7 +966,7 @@ function VisitorsPage({ visitors, setVisitors, members, showToast }) {
             <thead><tr><th>Visitor</th><th>Phone</th><th>Invited By</th><th>Visits</th><th>First Visit</th><th>Last Visit</th><th></th></tr></thead>
             <tbody>
               {filtered.map(v => (
-                <tr key={v.id} className="row-hover">
+                <tr key={v._id} className="row-hover">
                   <td>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                       <Avatar name={v.fullName} size={32} />
@@ -955,8 +981,8 @@ function VisitorsPage({ visitors, setVisitors, members, showToast }) {
                   <td>
                     <span className={`badge ${v.visitCount >= 3 ? 'badge-blue' : 'badge-green'}`}>{v.visitCount}x</span>
                   </td>
-                  <td style={{ fontSize: 13, color: 'var(--slate-500)' }}>{new Date(v.firstVisitDate).toLocaleDateString('en-GH')}</td>
-                  <td style={{ fontSize: 13, color: 'var(--slate-500)' }}>{new Date(v.lastVisitDate).toLocaleDateString('en-GH')}</td>
+                  <td style={{ fontSize: 13, color: 'var(--slate-500)' }}>{new Date(v.firstVisitDate || new Date()).toLocaleDateString('en-GH')}</td>
+                  <td style={{ fontSize: 13, color: 'var(--slate-500)' }}>{new Date(v.lastVisitDate || new Date()).toLocaleDateString('en-GH')}</td>
                   <td>
                     <div style={{ display: 'flex', gap: 6 }}>
                       <button onClick={() => openEdit(v)} style={{ background: 'var(--blue-50)', border: 'none', borderRadius: 7, padding: '6px 8px', cursor: 'pointer', color: 'var(--blue-600)' }}><Icon name="edit" size={14} /></button>
@@ -1005,7 +1031,17 @@ function VisitorsPage({ visitors, setVisitors, members, showToast }) {
 
       {deleteTarget && (
         <ConfirmModal title="Remove Visitor" message={`Remove ${deleteTarget.fullName} from visitor records?`}
-          onConfirm={() => { setVisitors(prev => prev.filter(v => v.id !== deleteTarget.id)); showToast('Visitor removed', 'success'); setDeleteTarget(null); }}
+          onConfirm={async () => {
+            try {
+              await visitorsAPI.delete(deleteTarget._id);
+              setVisitors(prev => prev.filter(v => v._id !== deleteTarget._id));
+              showToast('Visitor removed', 'success');
+              setDeleteTarget(null);
+            } catch (error) {
+              const errorMsg = error.response?.data?.message || 'Failed to delete visitor';
+              showToast(errorMsg, 'error');
+            }
+          }}
           onClose={() => setDeleteTarget(null)} />
       )}
     </div>
@@ -1014,11 +1050,11 @@ function VisitorsPage({ visitors, setVisitors, members, showToast }) {
 
 // ─── ATTENDANCE PAGE ──────────────────────────────────────────────────────────
 function AttendancePage({ attendance, setAttendance, members, visitors, services, showToast, user }) {
-  const [selectedService, setSelectedService] = useState(services[0]?.id || null);
+  const [selectedService, setSelectedService] = useState(services[0]?._id || null);
   const [search, setSearch] = useState('');
   const [tab, setTab] = useState('checkin');
 
-  const service = services.find(s => s.id === selectedService);
+  const service = services.find(s => s._id === selectedService);
   const serviceAttendance = attendance.filter(a => a.serviceId === selectedService);
 
   const allPeople = [
@@ -1033,28 +1069,30 @@ function AttendancePage({ attendance, setAttendance, members, visitors, services
   });
 
   const isCheckedIn = (person) => {
-    if (person.type === 'member') return serviceAttendance.some(a => a.attendeeId === person.id && a.attendeeType === 'member');
-    return serviceAttendance.some(a => a.attendeeId === person.id && a.attendeeType === 'visitor');
+    if (person.type === 'member') return serviceAttendance.some(a => a.memberId?._id === person._id && a.attendeeType === 'member');
+    return serviceAttendance.some(a => a.visitorId?._id === person._id && a.attendeeType === 'visitor');
   };
 
-  const handleCheckin = (person) => {
+  const handleCheckin = async (person) => {
     if (isCheckedIn(person)) {
       showToast(`${person.fullName} is already checked in`, 'error');
       return;
     }
-    const newRecord = {
-      id: Math.max(...attendance.map(a => a.id), 0) + 1,
-      serviceId: selectedService,
-      attendeeType: person.type,
-      attendeeId: person.id,
-      name: person.fullName,
-      checkinTime: new Date().toISOString(),
-      membershipId: person.membershipId || 'Visitor',
-      department: person.department || '-',
-    };
-    setAttendance(prev => [...prev, newRecord]);
-    showToast(`✓ ${person.fullName} checked in!`, 'success');
-    setSearch('');
+    try {
+      const response = await attendanceAPI.checkin({
+        serviceId: selectedService,
+        attendeeType: person.type,
+        memberId: person.type === 'member' ? person._id : undefined,
+        visitorId: person.type === 'visitor' ? person._id : undefined,
+      });
+      setAttendance(prev => [...prev, response.data]);
+      showToast(`✓ ${person.fullName} checked in!`, 'success');
+      setSearch('');
+    } catch (error) {
+      const errorMsg = error.response?.data?.message || 'Failed to check in';
+      showToast(errorMsg, 'error');
+      console.error('Checkin error:', error);
+    }
   };
 
   const memberCount = serviceAttendance.filter(a => a.attendeeType === 'member').length;
@@ -1067,9 +1105,9 @@ function AttendancePage({ attendance, setAttendance, members, visitors, services
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center' }}>
           <div style={{ flex: 1 }}>
             <label className="form-label" style={{ marginBottom: 6 }}>Select Service</label>
-            <select value={selectedService || ''} onChange={e => setSelectedService(Number(e.target.value))}>
+            <select value={selectedService || ''} onChange={e => setSelectedService(e.target.value)}>
               {services.map(s => (
-                <option key={s.id} value={s.id}>{s.name} — {new Date(s.date).toLocaleDateString('en-GH')} {s.time}</option>
+                <option key={s._id} value={s._id}>{s.name} — {new Date(s.date).toLocaleDateString('en-GH')} {s.time}</option>
               ))}
             </select>
           </div>
@@ -1117,7 +1155,7 @@ function AttendancePage({ attendance, setAttendance, members, visitors, services
             {(search ? filteredPeople : allPeople.slice(0, 15)).map(person => {
               const checkedIn = isCheckedIn(person);
               return (
-                <div key={`${person.type}-${person.id}`} className="row-hover"
+                <div key={`${person.type}-${person._id}`} className="row-hover"
                   style={{ padding: '12px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--slate-50)', cursor: 'pointer' }}
                   onClick={() => !checkedIn && handleCheckin(person)}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -1200,17 +1238,24 @@ function ServicesPage({ services, setServices, attendance, showToast, user }) {
   const openAdd = () => { setEditing(null); setForm({ name: '', type: 'Sunday Service', date: today, time: '09:00 AM', description: '' }); setShowModal(true); };
   const openEdit = (s) => { setEditing(s); setForm({ name: s.name, type: s.type, date: s.date, time: s.time, description: s.description || '' }); setShowModal(true); };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!form.name || !form.date) return;
-    if (editing) {
-      setServices(prev => prev.map(s => s.id === editing.id ? { ...s, ...form } : s));
-      showToast('Service updated', 'success');
-    } else {
-      const newId = Math.max(...services.map(s => s.id)) + 1;
-      setServices(prev => [{ id: newId, ...form }, ...prev]);
-      showToast('Service created', 'success');
+    try {
+      if (editing) {
+        await servicesAPI.update(editing._id, form);
+        setServices(prev => prev.map(s => s._id === editing._id ? { ...s, ...form } : s));
+        showToast('Service updated', 'success');
+      } else {
+        const response = await servicesAPI.create(form);
+        setServices(prev => [response.data, ...prev]);
+        showToast('Service created', 'success');
+      }
+      setShowModal(false);
+    } catch (error) {
+      const errorMsg = error.response?.data?.message || 'Failed to save service';
+      showToast(errorMsg, 'error');
+      console.error('Save error:', error);
     }
-    setShowModal(false);
   };
 
   return (
@@ -1225,9 +1270,9 @@ function ServicesPage({ services, setServices, attendance, showToast, user }) {
             <thead><tr><th>Service Name</th><th>Type</th><th>Date</th><th>Time</th><th>Attendance</th>{canEdit && <th></th>}</tr></thead>
             <tbody>
               {services.map(s => {
-                const count = attendance.filter(a => a.serviceId === s.id).length;
+                const count = attendance.filter(a => a.serviceId === s._id).length;
                 return (
-                  <tr key={s.id} className="row-hover">
+                  <tr key={s._id} className="row-hover">
                     <td>
                       <div style={{ fontWeight: 600, fontSize: 14 }}>{s.name}</div>
                       {s.description && <div style={{ fontSize: 12, color: 'var(--slate-400)' }}>{s.description}</div>}
@@ -1293,7 +1338,17 @@ function ServicesPage({ services, setServices, attendance, showToast, user }) {
 
       {deleteTarget && (
         <ConfirmModal title="Delete Service" message={`Delete "${deleteTarget.name}"? All attendance records for this service will also be affected.`}
-          onConfirm={() => { setServices(prev => prev.filter(s => s.id !== deleteTarget.id)); showToast('Service deleted', 'success'); setDeleteTarget(null); }}
+          onConfirm={async () => {
+            try {
+              await servicesAPI.delete(deleteTarget._id);
+              setServices(prev => prev.filter(s => s._id !== deleteTarget._id));
+              showToast('Service deleted', 'success');
+              setDeleteTarget(null);
+            } catch (error) {
+              const errorMsg = error.response?.data?.message || 'Failed to delete service';
+              showToast(errorMsg, 'error');
+            }
+          }}
           onClose={() => setDeleteTarget(null)} />
       )}
     </div>
@@ -1312,7 +1367,7 @@ function ReportsPage({ members, visitors, attendance, services }) {
   // Member attendance frequency
   const memberFreq = members.map(m => ({
     ...m,
-    count: attendance.filter(a => a.attendeeId === m.id && a.attendeeType === 'member').length
+    count: attendance.filter(a => a.attendeeId === m._id && a.attendeeType === 'member').length
   })).sort((a, b) => b.count - a.count).slice(0, 8);
 
   // Visitor repeat stats
@@ -1322,9 +1377,9 @@ function ReportsPage({ members, visitors, attendance, services }) {
   // Service breakdown
   const serviceStats = services.map(s => ({
     ...s,
-    count: attendance.filter(a => a.serviceId === s.id).length,
-    members: attendance.filter(a => a.serviceId === s.id && a.attendeeType === 'member').length,
-    visitors: attendance.filter(a => a.serviceId === s.id && a.attendeeType === 'visitor').length,
+    count: attendance.filter(a => a.serviceId === s._id).length,
+    members: attendance.filter(a => a.serviceId === s._id && a.attendeeType === 'member').length,
+    visitors: attendance.filter(a => a.serviceId === s._id && a.attendeeType === 'visitor').length,
   }));
 
   return (
@@ -1362,7 +1417,7 @@ function ReportsPage({ members, visitors, attendance, services }) {
           <h3 style={{ fontWeight: 600, fontSize: 16, marginBottom: 20 }}>Top Faithful Members</h3>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {memberFreq.slice(0, 5).map((m, i) => (
-              <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div key={m._id} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 <div style={{ width: 22, height: 22, borderRadius: '50%', background: i < 3 ? 'var(--blue-100)' : 'var(--slate-100)',
                   display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700,
                   color: i < 3 ? 'var(--blue-700)' : 'var(--slate-500)', flexShrink: 0 }}>
@@ -1390,7 +1445,7 @@ function ReportsPage({ members, visitors, attendance, services }) {
             <thead><tr><th>Service</th><th>Type</th><th>Date</th><th>Members</th><th>Visitors</th><th>Total</th></tr></thead>
             <tbody>
               {serviceStats.map(s => (
-                <tr key={s.id} className="row-hover">
+                <tr key={s._id} className="row-hover">
                   <td style={{ fontWeight: 500 }}>{s.name}</td>
                   <td><span className={`badge ${serviceTypeColors[s.type] || 'badge-slate'}`}>{s.type}</span></td>
                   <td style={{ fontSize: 13, color: 'var(--slate-500)' }}>{new Date(s.date).toLocaleDateString('en-GH')}</td>
@@ -1549,16 +1604,71 @@ export default function App() {
   const [page, setPage] = useState('dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [toast, setToast] = useState(null);
+  const [loading, setLoading] = useState(false);
 
-  const [members, setMembers] = useState(sampleMembers);
-  const [visitors, setVisitors] = useState(sampleVisitors);
-  const [attendance, setAttendance] = useState(sampleAttendance);
-  const [services, setServices] = useState(sampleServices);
+  const [members, setMembers] = useState([]);
+  const [visitors, setVisitors] = useState([]);
+  const [attendance, setAttendance] = useState([]);
+  const [services, setServices] = useState([]);
   const [users, setUsers] = useState(sampleUsers);
 
   const showToast = useCallback((message, type = 'success') => {
     setToast({ message, type });
   }, []);
+
+  // Load data when user logs in
+  useEffect(() => {
+    if (!user) return;
+
+    const loadData = async () => {
+      setLoading(true);
+      try {
+        const [membersRes, visitorsRes, servicesRes] = await Promise.all([
+          membersAPI.getAll(),
+          visitorsAPI.getAll(),
+          servicesAPI.getAll(),
+        ]);
+
+        setMembers(membersRes.data.members || []);
+        setVisitors(visitorsRes.data || []);
+        setServices(servicesRes.data || []);
+        
+        // Load attendance for all services
+        if (servicesRes.data && servicesRes.data.length > 0) {
+          const attendancePromises = servicesRes.data.map(s => 
+            attendanceAPI.getByService(s._id).catch(() => ({ data: [] }))
+          );
+          const attendanceData = await Promise.all(attendancePromises);
+          const allAttendance = attendanceData.flatMap((res, idx) => 
+            (res.data || []).map(a => ({
+              ...a,
+              id: a._id,
+              serviceId: servicesRes.data[idx]._id,
+              // Normalize member/visitor data
+              name: a.memberId?.fullName || a.visitorId?.fullName || 'Unknown',
+              attendeeId: a.memberId?._id || a.visitorId?._id,
+              department: a.memberId?.department || '-',
+              membershipId: a.memberId?.membershipId || 'Visitor',
+              checkinTime: a.checkinTime || new Date().toISOString(),
+            }))
+          );
+          setAttendance(allAttendance);
+        }
+      } catch (error) {
+        console.error('Failed to load data:', error);
+        showToast('Failed to load data. Using sample data.', 'error');
+        // Fallback to sample data on error
+        setMembers(sampleMembers);
+        setVisitors(sampleVisitors);
+        setServices(sampleServices);
+        setAttendance(sampleAttendance);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadData();
+  }, [user, showToast]);
 
   if (!user) return <><GlobalStyles /><LoginPage onLogin={setUser} /></>;
 
@@ -1568,17 +1678,28 @@ export default function App() {
     <AppContext.Provider value={{ user, showToast }}>
       <GlobalStyles />
       <div style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
-        <Sidebar currentPage={page} setPage={setPage} user={user} onLogout={() => setUser(null)} isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+        <Sidebar currentPage={page} setPage={setPage} user={user} onLogout={() => { setUser(null); localStorage.clear(); }} isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           <TopBar title={config.title} subtitle={config.subtitle} onMenuToggle={() => setSidebarOpen(true)} />
           <main style={{ flex: 1, overflowY: 'auto', background: 'var(--slate-50)' }}>
-            {page === 'dashboard' && <DashboardPage members={members} visitors={visitors} attendance={attendance} services={services} user={user} />}
-            {page === 'members' && <MembersPage members={members} setMembers={setMembers} showToast={showToast} user={user} />}
-            {page === 'visitors' && <VisitorsPage visitors={visitors} setVisitors={setVisitors} members={members} showToast={showToast} />}
-            {page === 'attendance' && <AttendancePage attendance={attendance} setAttendance={setAttendance} members={members} visitors={visitors} services={services} showToast={showToast} user={user} />}
-            {page === 'services' && <ServicesPage services={services} setServices={setServices} attendance={attendance} showToast={showToast} user={user} />}
-            {page === 'reports' && <ReportsPage members={members} visitors={visitors} attendance={attendance} services={services} />}
-            {page === 'settings' && user?.role === 'admin' && <SettingsPage users={users} setUsers={setUsers} showToast={showToast} currentUser={user} />}
+            {loading ? (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--slate-500)' }}>
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: 18, marginBottom: 8 }}>Loading...</div>
+                  <div style={{ fontSize: 13 }}>Fetching latest data</div>
+                </div>
+              </div>
+            ) : (
+              <>
+                {page === 'dashboard' && <DashboardPage members={members} visitors={visitors} attendance={attendance} services={services} user={user} />}
+                {page === 'members' && <MembersPage members={members} setMembers={setMembers} showToast={showToast} user={user} />}
+                {page === 'visitors' && <VisitorsPage visitors={visitors} setVisitors={setVisitors} members={members} showToast={showToast} />}
+                {page === 'attendance' && <AttendancePage attendance={attendance} setAttendance={setAttendance} members={members} visitors={visitors} services={services} showToast={showToast} user={user} />}
+                {page === 'services' && <ServicesPage services={services} setServices={setServices} attendance={attendance} showToast={showToast} user={user} />}
+                {page === 'reports' && <ReportsPage members={members} visitors={visitors} attendance={attendance} services={services} />}
+                {page === 'settings' && user?.role === 'admin' && <SettingsPage users={users} setUsers={setUsers} showToast={showToast} currentUser={user} />}
+              </>
+            )}
           </main>
         </div>
       </div>

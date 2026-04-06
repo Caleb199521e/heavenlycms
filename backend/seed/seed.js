@@ -1,11 +1,19 @@
 const mongoose = require('mongoose');
 const { User, Member, Visitor, Service } = require('../models');
-require('dotenv').config({ path: '../.env' });
+require('dotenv').config();
 
 async function seed() {
   await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/heavenly-church');
   console.log('Connected. Clearing existing data...');
-  await Promise.all([User.deleteMany(), Member.deleteMany(), Visitor.deleteMany(), Service.deleteMany()]);
+  
+  try {
+    await User.collection.drop();
+    await Member.collection.drop();
+    await Visitor.collection.drop();
+    await Service.collection.drop();
+  } catch (err) {
+    // Collections might not exist yet, that's okay
+  }
 
   await User.create([
     { name: 'Pastor Emmanuel Asante', email: 'admin@heavenly.gh', password: 'admin123', role: 'admin', phone: '0244000001' },

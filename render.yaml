@@ -1,0 +1,69 @@
+services:
+  # Backend API Service
+  - type: web
+    name: heavenly-church-api
+    runtime: node
+    region: frankfurt
+    plan: free
+    
+    # Git repository details
+    repo: https://github.com/YOUR_USERNAME/heavenly-church-ghana
+    branch: main
+    rootDir: backend
+    
+    # Build and start commands
+    buildCommand: npm install
+    startCommand: npm start
+    
+    # Environment variables
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3000
+      - key: MONGODB_URI
+        sync: false  # Set manually in Render dashboard for security
+      - key: JWT_SECRET
+        sync: false  # Set manually in Render dashboard
+      - key: CLIENT_URL
+        value: https://heavenly-church-gh.onrender.com
+      - key: LOG_LEVEL
+        value: info
+    
+    # Health check
+    healthCheckPath: /api/health
+    
+    # Scaling (free tier doesn't support, but good to have)
+    scaling:
+      minInstances: 1
+      maxInstances: 1
+    
+    # Auto-deploy on push
+    autoDeploy: true
+
+  # Frontend Static Site
+  - type: static_site
+    name: heavenly-church-gh
+    runtime: static
+    region: frankfurt
+    plan: free
+    
+    # Git repository details
+    repo: https://github.com/YOUR_USERNAME/heavenly-church-ghana
+    branch: main
+    buildCommand: npm run build
+    publishPath: dist
+    
+    # Environment variables for build
+    envVars:
+      - key: VITE_API_URL
+        value: https://heavenly-church-api.onrender.com/api
+    
+    # Auto-deploy on push
+    autoDeploy: true
+    
+    # Routes (optional - for SPA routing)
+    routes:
+      - path: /*
+        destination: /index.html
+        status: 200
