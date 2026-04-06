@@ -324,11 +324,56 @@ function LoginPage({ onLogin }) {
   };
 
   return (
-    <div style={{ minHeight: '100vh', background: 'linear-gradient(135deg, #1E3A8A 0%, #1D4ED8 40%, #3B82F6 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-      <div style={{ width: '100%', maxWidth: 1000, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 40, alignItems: 'center' }}>
+    <div style={{ minHeight: '100vh', background: 'linear-gradient(135deg, #1E3A8A 0%, #1D4ED8 40%, #3B82F6 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }}>
+      <style>{`
+        @media (max-width: 768px) {
+          .login-container {
+            grid-template-columns: 1fr !important;
+            gap: 20px !important;
+          }
+          .login-left {
+            display: none;
+          }
+          .login-form-wrapper {
+            padding: 24px !important;
+          }
+          .login-form-wrapper h2 {
+            font-size: 20px !important;
+          }
+          .login-form-wrapper p {
+            font-size: 13px !important;
+          }
+          .btn-primary {
+            padding: 12px 16px !important;
+            font-size: 14px !important;
+          }
+        }
+        @media (max-width: 480px) {
+          .login-container {
+            max-width: 100% !important;
+            padding: 0 !important;
+          }
+          .login-form-wrapper {
+            padding: 20px !important;
+            border-radius: 16px !important;
+          }
+          .login-form-wrapper h2 {
+            font-size: 18px !important;
+            margin-bottom: 6px !important;
+          }
+          input, select, textarea {
+            font-size: 16px !important;
+            padding: 10px 12px !important;
+          }
+          .form-group {
+            margin-bottom: 18px !important;
+          }
+        }
+      `}</style>
+      <div className="login-container" style={{ width: '100%', maxWidth: 1000, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 40, alignItems: 'center' }}>
         
-        {/* Left side - Community message */}
-        <div style={{ color: 'white', display: 'flex', flexDirection: 'column', gap: 20 }}>
+        {/* Left side - Community message (hidden on mobile) */}
+        <div className="login-left" style={{ color: 'white', display: 'flex', flexDirection: 'column', gap: 20 }}>
           <div>
             <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 80, height: 80, background: 'rgba(255,255,255,0.15)', borderRadius: 20, marginBottom: 24, border: '2px solid rgba(255,255,255,0.3)', backdropFilter: 'blur(10px)' }}>
               <Icon name="church" size={42} color="white" />
@@ -372,7 +417,7 @@ function LoginPage({ onLogin }) {
 
         {/* Right side - Login form */}
         <div style={{ padding: 0 }}>
-          <div style={{ background: 'white', borderRadius: 24, padding: 40, boxShadow: '0 20px 60px rgba(0,0,0,0.25)' }}>
+          <div className="login-form-wrapper" style={{ background: 'white', borderRadius: 24, padding: 40, boxShadow: '0 20px 60px rgba(0,0,0,0.25)' }}>
             <h2 style={{ fontFamily: 'Lora', fontSize: 24, fontWeight: 600, color: 'var(--slate-800)', marginBottom: 8 }}>Welcome to Your Ministry</h2>
             <p style={{ color: 'var(--slate-500)', fontSize: 14, marginBottom: 32 }}>Sign in to manage attendance & community</p>
 
@@ -384,7 +429,7 @@ function LoginPage({ onLogin }) {
             )}
 
             <form onSubmit={handleSubmit}>
-              <div className="form-group">
+              <div className="form-group" style={{ marginBottom: 24 }}>
                 <label className="form-label">Email Address</label>
                 <input 
                   type="email" 
