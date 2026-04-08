@@ -42,7 +42,7 @@ API.interceptors.response.use(
       
       switch (error.response.status) {
         case 400:
-          errorMessage = error.response.data?.error || 'Invalid request data';
+          errorMessage = error.response.data?.message || error.response.data?.error || 'Invalid request data';
           break;
         case 401:
           errorMessage = 'Session expired. Please login again.';
@@ -60,7 +60,7 @@ API.interceptors.response.use(
           errorMessage = 'Resource not found';
           break;
         case 409:
-          errorMessage = error.response.data?.error || 'Conflict: This item may already exist';
+          errorMessage = error.response.data?.message || error.response.data?.error || 'Conflict: This item may already exist';
           break;
         case 429:
           errorMessage = 'Too many requests. Please wait before trying again.';
@@ -69,7 +69,7 @@ API.interceptors.response.use(
           errorMessage = 'Server error. Please try again later.';
           break;
         default:
-          errorMessage = error.response.data?.error || 'Server error';
+          errorMessage = error.response.data?.message || error.response.data?.error || 'Server error';
       }
     } else if (error.request) {
       // Request made but no response received
@@ -137,6 +137,7 @@ export const servicesAPI = {
 // ─── ATTENDANCE ───────────────────────────────────────────────────────────────
 export const attendanceAPI = {
   checkin: (data) => API.post('/attendance/checkin', data),
+  uncheckout: (attendanceId) => API.delete(`/attendance/checkin/${attendanceId}`),
   getByService: (serviceId) => API.get(`/attendance/service/${serviceId}`),
   getByMember: (memberId) => API.get(`/attendance/member/${memberId}`),
 };

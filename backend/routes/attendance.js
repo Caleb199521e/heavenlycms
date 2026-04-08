@@ -6,6 +6,25 @@ const auth = require('../middleware/auth');
 router.post('/checkin', auth, async (req, res) => {
   try {
     const { serviceId, attendeeType, memberId, visitorId } = req.body;
+    
+    // Validate required fields
+    if (!serviceId || !attendeeType) {
+      return res.status(400).json({ message: 'serviceId and attendeeType are required' });
+    }
+    
+    // Validate attendeeType
+    if (!['member', 'visitor'].includes(attendeeType)) {
+      return res.status(400).json({ message: 'attendeeType must be either "member" or "visitor"' });
+    }
+    
+    // Validate that the appropriate ID is provided
+    if (attendeeType === 'member' && !memberId) {
+      return res.status(400).json({ message: 'memberId is required for member attendance' });
+    }
+    if (attendeeType === 'visitor' && !visitorId) {
+      return res.status(400).json({ message: 'visitorId is required for visitor attendance' });
+    }
+    
     const existing = await Attendance.findOne(
       attendeeType === 'member' ? { serviceId, memberId } : { serviceId, visitorId }
     );
@@ -20,6 +39,18 @@ router.post('/checkin', auth, async (req, res) => {
       });
     }
     res.status(201).json(record);
+  } catch (err) { res.status(400).json({ message: err.message }); }
+});
+
+router.delete('/checkin/:attendanceId', auth, async (req, res) => {
+  try {
+    const { attendanceId } = req.params;
+    const attendance = await Attendance.findById(attendanceId);
+    if (!attendance) {
+      return res.status(404).json({ message: 'Attendance record not found' });
+    }
+    await Attendance.findByIdAndDelete(attendanceId);
+    res.json({ message: 'Checked out successfully' });
   } catch (err) { res.status(400).json({ message: err.message }); }
 });
 

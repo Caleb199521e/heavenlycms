@@ -1119,24 +1119,57 @@ function AttendancePage({ attendance, setAttendance, members, visitors, services
   };
 
   const handleCheckin = async (person) => {
+    if (!selectedService) {
+      showToast('Please select a service first', 'error');
+      return;
+    }
     if (isCheckedIn(person)) {
       showToast(`${person.fullName} is already checked in`, 'error');
       return;
     }
     try {
-      const response = await attendanceAPI.checkin({
+      const checkinData = {
         serviceId: selectedService,
         attendeeType: person.type,
-        memberId: person.type === 'member' ? person._id : undefined,
-        visitorId: person.type === 'visitor' ? person._id : undefined,
-      });
+      };
+      if (person.type === 'member') {
+        checkinData.memberId = person._id;
+      } else if (person.type === 'visitor') {
+        checkinData.visitorId = person._id;
+      }
+      console.log('Sending checkin data:', checkinData);
+      const response = await attendanceAPI.checkin(checkinData);
       setAttendance(prev => [...prev, response.data]);
       showToast(`✓ ${person.fullName} checked in!`, 'success');
       setSearch('');
     } catch (error) {
       const errorMsg = error.response?.data?.message || 'Failed to check in';
       showToast(errorMsg, 'error');
+      console.error('Checkin error details:', error.response?.data);
       console.error('Checkin error:', error);
+    }
+  };
+
+  const handleUncheck = async (person, e) => {
+    e.stopPropagation();
+    try {
+      // Find the attendance record for this person
+      const record = person.type === 'member'
+        ? serviceAttendance.find(a => a.memberId?._id === person._id && a.attendeeType === 'member')
+        : serviceAttendance.find(a => a.visitorId?._id === person._id && a.attendeeType === 'visitor');
+
+      if (!record) {
+        showToast('Attendance record not found', 'error');
+        return;
+      }
+
+      await attendanceAPI.uncheckout(record._id);
+      setAttendance(prev => prev.filter(a => a._id !== record._id));
+      showToast(`✓ ${person.fullName} unchecked`, 'success');
+    } catch (error) {
+      const errorMsg = error.response?.data?.message || 'Failed to uncheck';
+      showToast(errorMsg, 'error');
+      console.error('Uncheck error:', error);
     }
   };
 
@@ -1215,9 +1248,13 @@ function AttendancePage({ attendance, setAttendance, members, visitors, services
                   </div>
                   <div>
                     {checkedIn ? (
-                      <span className="badge badge-green" style={{ gap: 4, display: 'flex', alignItems: 'center' }}>
+                      <button 
+                        className="badge badge-green" 
+                        style={{ gap: 4, display: 'flex', alignItems: 'center', cursor: 'pointer', border: 'none', background: 'var(--green-50)', color: 'var(--green-700)', padding: '6px 12px', borderRadius: '4px', fontSize: 12, fontWeight: 500 }}
+                        onClick={e => handleUncheck(person, e)}
+                        title="Click to undo check-in">
                         <Icon name="check" size={12} color="var(--green-700)" /> Checked In
-                      </span>
+                      </button>
                     ) : (
                       <button className="btn-primary" style={{ padding: '6px 14px', fontSize: 13 }} onClick={e => { e.stopPropagation(); handleCheckin(person); }}>
                         Check In
