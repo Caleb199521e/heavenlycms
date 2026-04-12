@@ -695,6 +695,42 @@ function DashboardPage({ members, visitors, attendance, services, user }) {
   const topDepts = Object.entries(deptBreakdown).sort((a, b) => b[1] - a[1]).slice(0, 5);
   const totalActive = activeMembers || 1;
 
+  // Calculate dynamic trends
+  const getDateDaysAgo = (days) => {
+    const d = new Date();
+    d.setDate(d.getDate() - days);
+    return d.toISOString().split('T')[0];
+  };
+
+  // Members trend (compare to 7 days ago)
+  const membersFromWeekAgo = members.filter(m => {
+    const createdDate = m.createdAt ? m.createdAt.substring(0, 10) : null;
+    return createdDate && createdDate >= getDateDaysAgo(7);
+  }).length;
+  const membersTrend = activeMembers > 0 ? Math.round(((activeMembers - membersFromWeekAgo) / Math.max(1, membersFromWeekAgo)) * 100) || 0 : 0;
+
+  // Visitors trend (compare to 7 days ago)
+  const visitorsFromWeekAgo = visitors.filter(v => {
+    const createdDate = v.createdAt ? v.createdAt.substring(0, 10) : null;
+    return createdDate && createdDate >= getDateDaysAgo(7);
+  }).length;
+  const visitorsTrend = visitors.length > 0 ? Math.round(((visitors.length - visitorsFromWeekAgo) / Math.max(1, visitorsFromWeekAgo)) * 100) || 0 : 0;
+
+  // Today's attendance trend (compare to yesterday)
+  const yesterday = getDateDaysAgo(1);
+  const yesterdayServices = services.filter(s => s.date && s.date.substring(0, 10) === yesterday);
+  const yesterdayAttendance = attendance.filter(a => yesterdayServices.some(s => s._id === a.serviceId));
+  const attendanceTrend = yesterdayAttendance.length > 0 ? Math.round(((todayAttendance.length - yesterdayAttendance.length) / yesterdayAttendance.length) * 100) : 0;
+
+  // Services trend (compare to previous month)
+  const currentMonth = today.substring(0, 7);
+  const prevMonth = new Date();
+  prevMonth.setMonth(prevMonth.getMonth() - 1);
+  const prevMonthStr = prevMonth.toISOString().substring(0, 7);
+  const servicesThisMonth = services.filter(s => s.date?.startsWith(currentMonth)).length;
+  const servicesPrevMonth = services.filter(s => s.date?.startsWith(prevMonthStr)).length;
+  const servicesTrend = servicesPrevMonth > 0 ? Math.round(((servicesThisMonth - servicesPrevMonth) / servicesPrevMonth) * 100) : 0;
+
   return (
     <div style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 24 }} className="animate-fade">
       {/* Greeting */}
@@ -708,10 +744,10 @@ function DashboardPage({ members, visitors, attendance, services, user }) {
 
       {/* Stats */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16 }}>
-        <StatCard label="Active Members" value={activeMembers} icon="members" color="blue" sub="Registered congregation" trend={5} />
-        <StatCard label="Total Visitors" value={visitors.length} icon="visitors" color="green" sub="All-time visitors" trend={12} />
-        <StatCard label="Today's Attendance" value={todayAttendance.length} icon="attendance" color="amber" sub={`${todayMembers} members · ${todayVisitors} visitors`} />
-        <StatCard label="Services This Month" value={services.filter(s => s.date?.startsWith(today.slice(0, 7))).length} icon="services" color="purple" sub="Scheduled services" />
+        <StatCard label="Active Members" value={activeMembers} icon="members" color="blue" sub="Registered congregation" trend={membersTrend} />
+        <StatCard label="Total Visitors" value={visitors.length} icon="visitors" color="green" sub="All-time visitors" trend={visitorsTrend} />
+        <StatCard label="Today's Attendance" value={todayAttendance.length} icon="attendance" color="amber" sub={`${todayMembers} members · ${todayVisitors} visitors`} trend={attendanceTrend} />
+        <StatCard label="Services This Month" value={servicesThisMonth} icon="services" color="purple" sub="Scheduled services" trend={servicesTrend} />
       </div>
 
       {/* Charts row */}
@@ -1755,8 +1791,18 @@ const pageConfig = {
 };
 
 // ─── MAIN APP ─────────────────────────────────────────────────────────────────
+// Helper to get initial user from localStorage (prevents login flash on refresh)
+const getInitialUser = () => {
+  try {
+    const savedUser = localStorage.getItem('currentUser');
+    return savedUser ? JSON.parse(savedUser) : null;
+  } catch {
+    return null;
+  }
+};
+
 export default function App() {
-  const [user, setUser] = useState(null);
+  const [user, setUser] = useState(getInitialUser);
   const [page, setPage] = useState('dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [toast, setToast] = useState(null);
@@ -1770,22 +1816,6 @@ export default function App() {
 
   const showToast = useCallback((message, type = 'success') => {
     setToast({ message, type });
-  }, []);
-
-  // Restore session from localStorage on mount
-  useEffect(() => {
-    const savedToken = localStorage.getItem('authToken');
-    const savedUser = localStorage.getItem('currentUser');
-    
-    if (savedToken && savedUser) {
-      try {
-        const user = JSON.parse(savedUser);
-        setUser(user);
-      } catch (err) {
-        console.error('Failed to restore session:', err);
-        localStorage.clear();
-      }
-    }
   }, []);
 
   // Load data when user logs in
