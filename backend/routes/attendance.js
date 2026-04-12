@@ -1,15 +1,49 @@
 const express = require('express');
 const router = express.Router();
-const { Attendance, Visitor } = require('../models');
+const { Attendance, Visitor, Service } = require('../models');
 const auth = require('../middleware/auth');
+
+// Helper function to get or create today's service by type
+async function getOrCreateService(serviceType, userId) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0); // Start of today
+  const tomorrow = new Date(today);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+
+  // Try to find today's service of this type
+  let service = await Service.findOne({
+    type: serviceType,
+    date: { $gte: today, $lt: tomorrow }
+  });
+
+  // If no service exists today, create one
+  if (!service) {
+    service = await Service.create({
+      name: `${serviceType} - ${today.toLocaleDateString('en-GH')}`,
+      type: serviceType,
+      date: new Date(today),
+      time: serviceType === 'Sunday Service' ? '09:00' : '18:00',
+      description: `Auto-created service for check-in`,
+      createdBy: userId
+    });
+  }
+
+  return service;
+}
 
 router.post('/checkin', auth, async (req, res) => {
   try {
-    const { serviceId, attendeeType, memberId, visitorId } = req.body;
+    const { serviceType, attendeeType, memberId, visitorId } = req.body;
     
     // Validate required fields
-    if (!serviceId || !attendeeType) {
-      return res.status(400).json({ message: 'serviceId and attendeeType are required' });
+    if (!serviceType || !attendeeType) {
+      return res.status(400).json({ message: 'serviceType and attendeeType are required' });
+    }
+    
+    // Validate serviceType
+    const validServiceTypes = ['Sunday Service', 'Midweek Service', 'Special Event', 'Prayer Meeting', 'Bible Study'];
+    if (!validServiceTypes.includes(serviceType)) {
+      return res.status(400).json({ message: `serviceType must be one of: ${validServiceTypes.join(', ')}` });
     }
     
     // Validate attendeeType
@@ -25,20 +59,31 @@ router.post('/checkin', auth, async (req, res) => {
       return res.status(400).json({ message: 'visitorId is required for visitor attendance' });
     }
     
+    // Get or create today's service of this type
+    const service = await getOrCreateService(serviceType, req.user.userId);
+    
     const existing = await Attendance.findOne(
-      attendeeType === 'member' ? { serviceId, memberId } : { serviceId, visitorId }
+      attendeeType === 'member' ? { serviceId: service._id, memberId } : { serviceId: service._id, visitorId }
     );
     if (existing) return res.status(409).json({ message: 'Already checked in for this service' });
+    
     const record = await Attendance.create({
-      serviceId, attendeeType, memberId, visitorId,
+      serviceId: service._id, attendeeType, memberId, visitorId,
       checkedInBy: req.user.userId
     });
+    
+    const populatedRecord = await record.populate([
+      { path: 'memberId', select: 'fullName membershipId department phone' },
+      { path: 'visitorId', select: 'fullName phone' },
+      { path: 'serviceId', select: '_id name type date time' }
+    ]);
+    
     if (attendeeType === 'visitor' && visitorId) {
       await Visitor.findByIdAndUpdate(visitorId, {
         $inc: { visitCount: 1 }, lastVisitDate: new Date()
       });
     }
-    res.status(201).json(record);
+    res.status(201).json(populatedRecord);
   } catch (err) { res.status(400).json({ message: err.message }); }
 });
 

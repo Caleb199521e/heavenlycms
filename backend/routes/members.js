@@ -18,7 +18,12 @@ router.get('/', auth, async (req, res) => {
       Member.find(query).sort({ createdAt: -1 }).skip((page-1)*limit).limit(+limit),
       Member.countDocuments(query)
     ]);
-    res.json({ members, total, pages: Math.ceil(total/limit) });
+    // Ensure _id is explicitly included
+    const membersWithId = members.map(m => ({
+      ...m.toObject(),
+      _id: m._id.toString() // Ensure _id is a string and included
+    }));
+    res.json({ members: membersWithId, total, pages: Math.ceil(total/limit) });
   } catch (err) { res.status(500).json({ message: err.message }); }
 });
 

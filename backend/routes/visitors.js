@@ -10,7 +10,12 @@ router.get('/', auth, async (req, res) => {
       $or: [{ fullName: { $regex: search, $options: 'i' } }, { phone: { $regex: search, $options: 'i' } }]
     } : {};
     const visitors = await Visitor.find(query).sort({ lastVisitDate: -1 });
-    res.json(visitors);
+    // Ensure _id is explicitly included
+    const visitorsWithId = visitors.map(v => ({
+      ...v.toObject(),
+      _id: v._id.toString() // Ensure _id is a string and included
+    }));
+    res.json(visitorsWithId);
   } catch (err) { res.status(500).json({ message: err.message }); }
 });
 

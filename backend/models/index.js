@@ -90,13 +90,22 @@ const attendanceSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 // Prevent duplicate attendance
+// Only enforce uniqueness when memberId is present
 attendanceSchema.index(
   { serviceId: 1, memberId: 1 },
-  { unique: true, sparse: true }
+  { 
+    unique: true, 
+    partialFilterExpression: { memberId: { $exists: true }, serviceId: { $exists: true } }
+  }
 );
+
+// Only enforce uniqueness when visitorId is present
 attendanceSchema.index(
   { serviceId: 1, visitorId: 1 },
-  { unique: true, sparse: true }
+  { 
+    unique: true, 
+    partialFilterExpression: { visitorId: { $exists: true }, serviceId: { $exists: true } }
+  }
 );
 
 module.exports = {

@@ -1094,17 +1094,48 @@ function VisitorsPage({ visitors, setVisitors, members, showToast }) {
 }
 
 // ─── ATTENDANCE PAGE ──────────────────────────────────────────────────────────
-function AttendancePage({ attendance, setAttendance, members, visitors, services, showToast, user }) {
-  const [selectedService, setSelectedService] = useState(services[0]?._id || null);
+function AttendancePage({ attendance, setAttendance, members, visitors, services, setServices, showToast, user }) {
+  const serviceTypes = ['Sunday Service', 'Midweek Service', 'Special Event', 'Prayer Meeting', 'Bible Study'];
+  const [selectedServiceType, setSelectedServiceType] = useState('Sunday Service');
+  const [currentServiceId, setCurrentServiceId] = useState(null); // Track the service being used
   const [search, setSearch] = useState('');
   const [tab, setTab] = useState('checkin');
 
-  const service = services.find(s => s._id === selectedService);
-  const serviceAttendance = attendance.filter(a => a.serviceId === selectedService);
+  // Get today's service for the selected type (for display purposes)
+  const getTodayServiceByType = (type) => {
+    const today = new Date();
+    const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    const todayEnd = new Date(todayStart);
+    todayEnd.setDate(todayEnd.getDate() + 1);
+    
+    return services.find(s => {
+      if (s.type !== type) return false;
+      const serviceDate = new Date(s.date);
+      const serviceDateStart = new Date(serviceDate.getFullYear(), serviceDate.getMonth(), serviceDate.getDate());
+      return serviceDateStart.getTime() === todayStart.getTime();
+    });
+  };
+
+  const todayService = getTodayServiceByType(selectedServiceType);
+  const serviceAttendance = (todayService || (currentServiceId && services.find(s => s._id === currentServiceId)))
+    ? attendance.filter(a => a.serviceId?._id === (todayService?._id || currentServiceId))
+    : [];
 
   const allPeople = [
-    ...members.filter(m => m.status === 'active').map(m => ({ ...m, type: 'member', displayId: m.membershipId })),
-    ...visitors.map(v => ({ ...v, fullName: v.fullName, type: 'visitor', displayId: 'Visitor', department: '-' })),
+    ...members.filter(m => m.status === 'active').map(m => ({ 
+      ...m, 
+      _id: m._id || m.id,  // Ensure _id is captured
+      type: 'member', 
+      displayId: m.membershipId 
+    })),
+    ...visitors.map(v => ({ 
+      ...v, 
+      _id: v._id || v.id,  // Ensure _id is captured
+      fullName: v.fullName, 
+      type: 'visitor', 
+      displayId: 'Visitor', 
+      department: '-' 
+    })),
   ];
 
   const filteredPeople = allPeople.filter(p => {
@@ -1119,8 +1150,8 @@ function AttendancePage({ attendance, setAttendance, members, visitors, services
   };
 
   const handleCheckin = async (person) => {
-    if (!selectedService) {
-      showToast('Please select a service first', 'error');
+    if (!selectedServiceType) {
+      showToast('Please select a service type first', 'error');
       return;
     }
     if (isCheckedIn(person)) {
@@ -1129,17 +1160,43 @@ function AttendancePage({ attendance, setAttendance, members, visitors, services
     }
     try {
       const checkinData = {
-        serviceId: selectedService,
+        serviceType: selectedServiceType,
         attendeeType: person.type,
       };
+      
       if (person.type === 'member') {
-        checkinData.memberId = person._id;
+        const memberId = person._id || person.id;
+        if (!memberId) {
+          showToast('Error: Member ID not found. Please refresh and try again.', 'error');
+          console.error('Member object missing _id:', person);
+          return;
+        }
+        checkinData.memberId = memberId;
       } else if (person.type === 'visitor') {
-        checkinData.visitorId = person._id;
+        const visitorId = person._id || person.id;
+        if (!visitorId) {
+          showToast('Error: Visitor ID not found. Please refresh and try again.', 'error');
+          console.error('Visitor object missing _id:', person);
+          return;
+        }
+        checkinData.visitorId = visitorId;
       }
-      console.log('Sending checkin data:', checkinData);
+      
+      console.log('Sending checkin data:', checkinData, 'for person:', person);
       const response = await attendanceAPI.checkin(checkinData);
       setAttendance(prev => [...prev, response.data]);
+      
+      // Store the service ID for reliable filtering
+      const newService = response.data.serviceId;
+      if (newService?._id) {
+        setCurrentServiceId(newService._id);
+      }
+      
+      // Ensure the newly created service is in the services list
+      if (newService && !services.some(s => s._id === newService._id)) {
+        setServices(prev => [newService, ...prev]);
+      }
+      
       showToast(`✓ ${person.fullName} checked in!`, 'success');
       setSearch('');
     } catch (error) {
@@ -1178,34 +1235,51 @@ function AttendancePage({ attendance, setAttendance, members, visitors, services
 
   return (
     <div style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 20 }} className="animate-fade">
-      {/* Service selector */}
+      {/* Service Type Selector */}
       <div className="card" style={{ padding: 20 }}>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center' }}>
-          <div style={{ flex: 1 }}>
-            <label className="form-label" style={{ marginBottom: 6 }}>Select Service</label>
-            <select value={selectedService || ''} onChange={e => setSelectedService(e.target.value)}>
-              {services.map(s => (
-                <option key={s._id} value={s._id}>{s.name} — {new Date(s.date).toLocaleDateString('en-GH')} {s.time}</option>
-              ))}
-            </select>
-          </div>
-          {service && (
-            <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
-              <div style={{ textAlign: 'center' }}>
-                <div style={{ fontSize: 24, fontWeight: 700, color: 'var(--blue-600)' }}>{memberCount}</div>
-                <div style={{ fontSize: 12, color: 'var(--slate-500)' }}>Members</div>
-              </div>
-              <div style={{ textAlign: 'center' }}>
-                <div style={{ fontSize: 24, fontWeight: 700, color: 'var(--green-600)' }}>{visitorCount}</div>
-                <div style={{ fontSize: 12, color: 'var(--slate-500)' }}>Visitors</div>
-              </div>
-              <div style={{ textAlign: 'center' }}>
-                <div style={{ fontSize: 24, fontWeight: 700, color: 'var(--slate-800)' }}>{memberCount + visitorCount}</div>
-                <div style={{ fontSize: 12, color: 'var(--slate-500)' }}>Total</div>
-              </div>
-            </div>
-          )}
+        <label className="form-label" style={{ marginBottom: 12 }}>Select Service Type</label>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 20 }}>
+          {serviceTypes.map(type => (
+            <button
+              key={type}
+              onClick={() => {
+                setSelectedServiceType(type);
+                setCurrentServiceId(null); // Reset when switching types
+              }}
+              style={{
+                padding: '10px 16px',
+                borderRadius: 8,
+                fontSize: 14,
+                fontWeight: 600,
+                border: selectedServiceType === type ? '2px solid var(--blue-600)' : '1.5px solid var(--slate-200)',
+                background: selectedServiceType === type ? 'var(--blue-50)' : 'white',
+                color: selectedServiceType === type ? 'var(--blue-700)' : 'var(--slate-600)',
+                cursor: 'pointer',
+                transition: 'all 0.15s'
+              }}>
+              {type}
+            </button>
+          ))}
         </div>
+        {todayService || (currentServiceId && services.find(s => s._id === currentServiceId)) ? (
+          <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', paddingTop: 12, borderTop: '1px solid var(--slate-100)' }}>
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: 24, fontWeight: 700, color: 'var(--blue-600)' }}>{memberCount}</div>
+              <div style={{ fontSize: 12, color: 'var(--slate-500)' }}>Members</div>
+            </div>
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: 24, fontWeight: 700, color: 'var(--green-600)' }}>{visitorCount}</div>
+              <div style={{ fontSize: 12, color: 'var(--slate-500)' }}>Visitors</div>
+            </div>
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: 24, fontWeight: 700, color: 'var(--slate-800)' }}>{memberCount + visitorCount}</div>
+              <div style={{ fontSize: 12, color: 'var(--slate-500)' }}>Total</div>
+            </div>
+            <div style={{ fontSize: 13, color: 'var(--slate-500)', marginLeft: 'auto' }}>
+              📅 {new Date((todayService || services.find(s => s._id === currentServiceId)).date).toLocaleDateString('en-GH')} at {(todayService || services.find(s => s._id === currentServiceId)).time}
+            </div>
+          </div>
+        ) : null}
       </div>
 
       {/* Tabs */}
@@ -1272,7 +1346,7 @@ function AttendancePage({ attendance, setAttendance, members, visitors, services
       ) : (
         <div className="card" style={{ overflow: 'hidden' }}>
           <div style={{ padding: '16px 24px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <h3 style={{ fontWeight: 600, fontSize: 16 }}>Attendance List — {service?.name}</h3>
+            <h3 style={{ fontWeight: 600, fontSize: 16 }}>Attendance List — {(todayService || services.find(s => s._id === currentServiceId))?.name || selectedServiceType}</h3>
             <span style={{ fontSize: 13, color: 'var(--slate-500)' }}>{serviceAttendance.length} total</span>
           </div>
           <div style={{ overflowX: 'auto' }}>
@@ -1280,16 +1354,16 @@ function AttendancePage({ attendance, setAttendance, members, visitors, services
               <thead><tr><th>Name</th><th>Type</th><th>ID / Status</th><th>Department</th><th>Check-in Time</th></tr></thead>
               <tbody>
                 {serviceAttendance.map(a => (
-                  <tr key={a.id} className="row-hover">
+                  <tr key={a._id} className="row-hover">
                     <td>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <Avatar name={a.name} size={30} />
-                        <span style={{ fontWeight: 500 }}>{a.name}</span>
+                        <Avatar name={a.memberId?.fullName || a.visitorId?.fullName} size={30} />
+                        <span style={{ fontWeight: 500 }}>{a.memberId?.fullName || a.visitorId?.fullName}</span>
                       </div>
                     </td>
                     <td><span className={`badge ${a.attendeeType === 'member' ? 'badge-blue' : 'badge-green'}`}>{a.attendeeType}</span></td>
-                    <td><code style={{ fontSize: 12, background: 'var(--slate-100)', padding: '2px 8px', borderRadius: 6 }}>{a.membershipId}</code></td>
-                    <td>{a.department !== '-' ? a.department : <span style={{ color: 'var(--slate-400)' }}>-</span>}</td>
+                    <td><code style={{ fontSize: 12, background: 'var(--slate-100)', padding: '2px 8px', borderRadius: 6 }}>{a.memberId?.membershipId || 'Visitor'}</code></td>
+                    <td>{a.memberId?.department || '-'}</td>
                     <td style={{ fontSize: 13, color: 'var(--slate-500)' }}>{new Date(a.checkinTime).toLocaleTimeString('en-GH', { hour: '2-digit', minute: '2-digit' })}</td>
                   </tr>
                 ))}
@@ -1792,7 +1866,7 @@ export default function App() {
                 {page === 'dashboard' && <DashboardPage members={members} visitors={visitors} attendance={attendance} services={services} user={user} />}
                 {page === 'members' && <MembersPage members={members} setMembers={setMembers} showToast={showToast} user={user} />}
                 {page === 'visitors' && <VisitorsPage visitors={visitors} setVisitors={setVisitors} members={members} showToast={showToast} />}
-                {page === 'attendance' && <AttendancePage attendance={attendance} setAttendance={setAttendance} members={members} visitors={visitors} services={services} showToast={showToast} user={user} />}
+                {page === 'attendance' && <AttendancePage attendance={attendance} setAttendance={setAttendance} members={members} visitors={visitors} services={services} setServices={setServices} showToast={showToast} user={user} />}
                 {page === 'services' && <ServicesPage services={services} setServices={setServices} attendance={attendance} showToast={showToast} user={user} />}
                 {page === 'reports' && <ReportsPage members={members} visitors={visitors} attendance={attendance} services={services} />}
                 {page === 'settings' && user?.role === 'admin' && <SettingsPage users={users} setUsers={setUsers} showToast={showToast} currentUser={user} />}
