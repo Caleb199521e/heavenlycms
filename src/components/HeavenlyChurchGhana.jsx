@@ -293,12 +293,25 @@ function ConfirmModal({ title, message, onConfirm, onClose }) {
 }
 
 // ─── LOGIN PAGE ───────────────────────────────────────────────────────────────
-function LoginPage({ onLogin }) {
+function LoginPage({ onLogin, members = [], visitors = [], services = [] }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+
+  // Calculate dynamic stats
+  const activeMembers = members.filter(m => m.status === 'active').length;
+  const today = new Date().toISOString().split('T')[0];
+  const thisWeekStart = new Date();
+  thisWeekStart.setDate(thisWeekStart.getDate() - 7);
+  const thisWeekDate = thisWeekStart.toISOString().split('T')[0];
+  const weeklyServices = services.filter(s => s.date && s.date >= thisWeekDate).length;
+  const thisMonth = today.substring(0, 7);
+  const recentVisitors = visitors.filter(v => {
+    const createdDate = v.createdAt ? v.createdAt.substring(0, 7) : null;
+    return createdDate === thisMonth;
+  }).length;
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -390,7 +403,7 @@ function LoginPage({ onLogin }) {
                 <Icon name="members" size={16} color="white" />
               </div>
               <div>
-                <div style={{ fontWeight: 600, fontSize: 14 }}>12+ Active Members</div>
+                <div style={{ fontWeight: 600, fontSize: 14 }}>{activeMembers}+ Active Members</div>
                 <div style={{ fontSize: 12, opacity: 0.75 }}>Engaged congregation</div>
               </div>
             </div>
@@ -399,7 +412,7 @@ function LoginPage({ onLogin }) {
                 <Icon name="services" size={16} color="white" />
               </div>
               <div>
-                <div style={{ fontWeight: 600, fontSize: 14 }}>Weekly Services</div>
+                <div style={{ fontWeight: 600, fontSize: 14 }}>{weeklyServices} Weekly Services</div>
                 <div style={{ fontSize: 12, opacity: 0.75 }}>Sunday worship & midweek study</div>
               </div>
             </div>
@@ -409,7 +422,7 @@ function LoginPage({ onLogin }) {
               </div>
               <div>
                 <div style={{ fontWeight: 600, fontSize: 14 }}>Welcome to Visitors</div>
-                <div style={{ fontSize: 12, opacity: 0.75 }}>4 recent guests this month</div>
+                <div style={{ fontSize: 12, opacity: 0.75 }}>{recentVisitors} recent guests this month</div>
               </div>
             </div>
           </div>
@@ -1872,7 +1885,7 @@ export default function App() {
     loadData();
   }, [user, showToast]);
 
-  if (!user) return <><GlobalStyles /><LoginPage onLogin={setUser} /></>;
+  if (!user) return <><GlobalStyles /><LoginPage onLogin={setUser} members={members} visitors={visitors} services={services} /></>;
 
   const config = pageConfig[page] || pageConfig.dashboard;
 
